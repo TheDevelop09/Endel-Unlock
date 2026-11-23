@@ -1,0 +1,476 @@
+// ==UserScript==
+// @name         Endel Unlock
+// @namespace    endel-unlock
+// @version      4.0
+// @description  Débloque les soundscapes et la limite de 10 minutes sur Endel Web
+// @match        https://app.endel.io/*
+// @run-at       document-start
+// @grant        none
+// ==/UserScript==
+
+(() => {
+  'use strict';
+  if (window.__eu) return;
+  window.__eu = true;
+
+  const IDS_KEY = 'eu-ids';
+  const FAV_KEY = 'eu-favs';
+  const REC_KEY = 'eu-recent';
+  const POS_KEY = 'eu-pos';
+  const MIN_KEY = 'eu-min';
+  const BASE = ['focus', 'sleep', 'relax', 'study', 'recovery', 'grimes', 'asmr'];
+
+  const map = JSON.parse(localStorage.getItem(IDS_KEY) || '{}');
+  const favs = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]'));
+  let recents = JSON.parse(localStorage.getItem(REC_KEY) || '[]');
+
+  const L = (s) =>
+    s.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  const hour = () => new Date().getHours();
+  const url = (bank) => `/api/pacific?mode=${bank}&hour=${hour()}&hlsjs=1`;
+
+  /* ---------- 1. limite de 10 minutes : on retire duration ---------- */
+  const strip = (u) => {
+    if (typeof u !== 'string' || !u.includes('/api/pacific')) return u;
+    try {
+      const p = new URL(u, location.origin);
+      p.searchParams.delete('duration');
+      return p.pathname + p.search;
+    } catch (e) { return u; }
+  };
+
+  const origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    if (typeof input === 'string') input = strip(input);
+    else if (input && input.url) {
+      const s = strip(input.url);
+      if (s !== input.url) input = new Request(s, input);
+    }
+    return origFetch.call(this, input, init);
+  };
+
+  const origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, u, ...rest) {
+    return origOpen.call(this, m, strip(u), ...rest);
+  };
+
+  /* ---------- 2. le paywall : on l'annule et on joue ---------- */
+  const FUNNEL = /\/funnel\/unlock/;
+  let navigating = false;
+
+  const gated = (target) => {
+    if (!target || !FUNNEL.test(target)) return false;
+    let id;
+    try {
+      const back = new URL(target, location.origin).searchParams.get('go-back');
+      if (!back) return false;
+      id = back.split('/player/')[1];
+    } catch (e) { return false; }
+    if (!id) return false;
+
+    navigating = true;
+    play(id, map[id] || id).then((ok) => {
+      navigating = false;
+      if (!ok) location.assign(target);
+    });
+    return true;
+  };
+
+  for (const method of ['pushState', 'replaceState']) {
+    const orig = history[method];
+    history[method] = function (state, title, target) {
+      if (gated(target)) return;
+      return orig.call(this, state, title, target);
+    };
+  }
+
+  /* ---------- 3. style ---------- */
+  const style = document.createElement('style');
+  style.textContent = `
+  #eu{position:fixed;left:18px;bottom:18px;z-index:2147483647;width:296px;
+    background:rgba(14,14,14,.86);backdrop-filter:blur(18px);color:#eaeaea;
+    border:1px solid rgba(255,255,255,.09);border-radius:16px;
+    font:12px/1.45 ui-sans-serif,system-ui,sans-serif;
+    box-shadow:0 18px 50px rgba(0,0,0,.7);overflow:hidden;
+    transition:width .18s ease,height .18s ease}
+  #eu.eu-min{width:52px;height:52px;border-radius:50%}
+  #eu.eu-min .b,#eu.eu-min .title,#eu.eu-min [data-a=x]{display:none}
+  #eu.eu-min .h{padding:0;height:52px;justify-content:center;border:0}
+  #eu .h{display:flex;align-items:center;gap:6px;padding:10px 12px;
+    border-bottom:1px solid rgba(255,255,255,.07);cursor:grab;user-select:none}
+  #eu .h:active{cursor:grabbing}
+  #eu .dot{width:7px;height:7px;border-radius:50%;background:#b8f24a;flex:none}
+  #eu.eu-min .dot{width:14px;height:14px}
+  #eu .title{flex:1;font-weight:600;font-size:12px;letter-spacing:.02em}
+  #eu button{background:rgba(255,255,255,.05);color:#eaeaea;
+    border:1px solid rgba(255,255,255,.08);border-radius:8px;
+    padding:5px 9px;cursor:pointer;font:inherit;transition:.15s}
+  #eu button:hover{background:rgba(255,255,255,.12)}
+  #eu .b{padding:12px;display:flex;flex-direction:column;gap:9px}
+  #eu .now{color:#8b8b8b;min-height:2.7em}
+  #eu .now b{color:#eaeaea;font-weight:600}
+  #eu .bar{height:3px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
+  #eu .bar i{display:block;height:100%;width:0;background:#b8f24a;transition:width .3s linear}
+  #eu input[type=search]{width:100%;box-sizing:border-box;background:rgba(255,255,255,.05);
+    color:#eaeaea;border:1px solid rgba(255,255,255,.08);border-radius:8px;
+    padding:6px 9px;font:inherit;outline:none}
+  #eu input[type=search]:focus{border-color:rgba(184,242,74,.5)}
+  #eu .l{max-height:236px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
+    scrollbar-width:thin;scrollbar-color:#3a3a3a transparent}
+  #eu .l::-webkit-scrollbar{width:6px}
+  #eu .l::-webkit-scrollbar-thumb{background:#3a3a3a;border-radius:3px}
+  #eu .row{display:flex;gap:4px}
+  #eu .i{flex:1;text-align:left;background:rgba(255,255,255,.03)}
+  #eu .i.on{border-color:#b8f24a;color:#d9ffa1}
+  #eu .s{display:flex;gap:6px;align-items:center}
+  #eu select{flex:1;background:rgba(255,255,255,.05);color:#eaeaea;
+    border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:5px;font:inherit}
+  #eu input[type=range]{width:100%;accent-color:#b8f24a}
+  #eu .foot{display:flex;gap:6px}
+  #eu .foot button{flex:1}
+  #eu .sec{color:#6f6f6f;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+  `;
+  document.documentElement.appendChild(style);
+
+  /* ---------- 4. interface ---------- */
+  const root = document.createElement('div');
+  root.id = 'eu';
+  root.innerHTML = `
+    <div class="h">
+      <span class="dot"></span>
+      <span class="title">Endel Unlock</span>
+      <button data-a="x">×</button>
+    </div>
+    <div class="b">
+      <div class="now">Prêt</div>
+      <div class="bar"><i></i></div>
+      <input type="search" placeholder="Filtrer…" data-a="q">
+      <div class="l"></div>
+      <div class="s">
+        <select data-a="timer">
+          <option value="0">Minuteur</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">60 min</option>
+          <option value="90">90 min</option>
+        </select>
+        <button data-a="stop">Stop</button>
+        <button data-a="sync" title="Resynchroniser">↻</button>
+      </div>
+      <input type="range" min="0" max="100" value="70" data-a="vol">
+    </div>`;
+  document.documentElement.appendChild(root);
+
+  const list = root.querySelector('.l');
+  const now = root.querySelector('.now');
+  const bar = root.querySelector('.bar i');
+  const search = root.querySelector('[data-a=q]');
+
+  /* ---------- 5. lecteur ---------- */
+  const audio = new Audio();
+  audio.preload = 'auto';
+  audio.volume = 0.7;
+
+  let queue = [];
+  let cursor = 0;
+  let total = 0;
+  let startedAt = 0;
+  let source = null;
+  let buffer = null;
+  let fetching = false;
+  let timer = null;
+  let busy = false;
+  let activeId = null;
+
+  const idle = () => new Promise((r) => {
+    if (!buffer || !buffer.updating) return r();
+    buffer.addEventListener('updateend', r, { once: true });
+  });
+
+  function teardown() {
+    clearTimeout(timer);
+    queue = []; cursor = 0; total = 0; fetching = false;
+    try { if (source && source.readyState === 'open') source.endOfStream(); } catch (e) {}
+    source = null; buffer = null;
+    audio.pause(); audio.removeAttribute('src');
+    bar.style.width = '0';
+  }
+
+  function fade(done) {
+    const from = audio.volume, t0 = performance.now();
+    (function step() {
+      const k = Math.min(1, (performance.now() - t0) / 1200);
+      audio.volume = from * (1 - k);
+      if (k < 1) requestAnimationFrame(step); else done();
+    })();
+  }
+
+  function stop() {
+    fade(() => {
+      teardown();
+      activeId = null;
+      audio.volume = root.querySelector('[data-a=vol]').value / 100;
+      now.textContent = 'Arrêté';
+      render();
+    });
+  }
+
+  async function segments(bank) {
+    const res = await fetch(url(bank));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const txt = await res.text();
+    if (!txt.startsWith('#EXTM3U')) throw new Error('playlist invalide');
+    return txt.split('\n').filter((l) => l.startsWith('http'));
+  }
+
+  async function pump() {
+    if (!buffer || fetching) return;
+    if (cursor >= queue.length) {
+      try { source.endOfStream(); } catch (e) {}
+      return;
+    }
+    if (audio.buffered.length &&
+        audio.buffered.end(audio.buffered.length - 1) - audio.currentTime > 20) return;
+    fetching = true;
+    try {
+      const chunk = await (await fetch(queue[cursor++])).arrayBuffer();
+      await idle();
+      if (audio.currentTime > 150) {
+        try { buffer.remove(0, audio.currentTime - 60); } catch (e) {}
+      }
+      buffer.appendBuffer(chunk);
+    } catch (e) {
+      console.warn('[Endel Unlock]', e.message);
+    } finally {
+      fetching = false;
+      pump();
+    }
+  }
+
+  async function play(id, bank) {
+    if (busy) return false;
+    busy = true;
+    teardown();
+    const name = L(id);
+    now.innerHTML = 'Chargement : <b>' + name + '</b>';
+    try {
+      queue = await segments(bank);
+      total = queue.length * 60;
+      startedAt = Date.now();
+      activeId = id;
+
+      recents = [id, ...recents.filter((r) => r !== id)].slice(0, 6);
+      localStorage.setItem(REC_KEY, JSON.stringify(recents));
+
+      if (MediaSource.isTypeSupported('audio/aac')) {
+        source = new MediaSource();
+        audio.src = URL.createObjectURL(source);
+        source.addEventListener('sourceopen', () => {
+          try {
+            buffer = source.addSourceBuffer('audio/aac');
+            buffer.addEventListener('updateend', pump);
+            pump();
+          } catch (e) { console.warn(e.message); }
+        }, { once: true });
+      } else {
+        audio.onended = () => {
+          if (cursor < queue.length) { audio.src = queue[cursor++]; audio.play().catch(() => {}); }
+        };
+        audio.src = queue[cursor++];
+      }
+
+      await audio.play();
+      now.innerHTML = '<b>' + name + '</b> · ' + queue.length + ' min';
+      navigator.mediaSession.metadata = new MediaMetadata({ title: name, artist: 'Endel' });
+      render();
+      busy = false;
+      return true;
+    } catch (e) {
+      now.textContent = name + ' : ' + e.message;
+      activeId = null;
+      busy = false;
+      return false;
+    }
+  }
+
+  async function download(id, bank) {
+    if (busy) return;
+    busy = true;
+    const name = L(id);
+    try {
+      const urls = await segments(bank);
+      const parts = [];
+      for (let i = 0; i < urls.length; i++) {
+        parts.push(await (await fetch(urls[i])).arrayBuffer());
+        now.textContent = `Téléchargement ${name} ${Math.round((100 * i) / urls.length)}%`;
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(parts, { type: 'audio/aac' }));
+      a.download = `endel-${id}.aac`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      now.textContent = 'Enregistré : ' + name;
+    } catch (e) {
+      now.textContent = 'Échec : ' + e.message;
+    } finally { busy = false; }
+  }
+
+  audio.ontimeupdate = () => {
+    if (!total) return;
+    const elapsed = (Date.now() - startedAt) / 1000;
+    bar.style.width = Math.min(100, (elapsed / total) * 100) + '%';
+  };
+
+  /* ---------- 6. liste ---------- */
+  function render() {
+    const q = search.value.trim().toLowerCase();
+    const ids = Object.keys(map).length ? Object.keys(map) : BASE;
+    let items = ids.filter((id) => !q || L(id).toLowerCase().includes(q) || id.includes(q));
+    items.sort((a, b) =>
+      (b === activeId) - (a === activeId) ||
+      favs.has(b) - favs.has(a) ||
+      (recents.indexOf(a) + 1 || 99) - (recents.indexOf(b) + 1 || 99) ||
+      a.localeCompare(b));
+
+    list.textContent = '';
+    for (const id of items) {
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const b = document.createElement('button');
+      b.className = 'i' + (id === activeId ? ' on' : '');
+      b.textContent = (favs.has(id) ? '★ ' : '') + L(id);
+      b.onclick = () => play(id, map[id] || id);
+
+      const f = document.createElement('button');
+      f.textContent = favs.has(id) ? '★' : '＋';
+      f.onclick = () => {
+        favs.has(id) ? favs.delete(id) : favs.add(id);
+        localStorage.setItem(FAV_KEY, JSON.stringify([...favs]));
+        render();
+      };
+
+      const d = document.createElement('button');
+      d.textContent = '↓';
+      d.onclick = () => download(id, map[id] || id);
+
+      row.append(b, f, d);
+      list.appendChild(row);
+    }
+    if (!items.length) {
+      list.innerHTML = '<div class="sec">Aucun résultat</div>';
+    }
+  }
+
+  /* ---------- 7. synchro ---------- */
+  async function sync() {
+    if (busy) return;
+    busy = true;
+    now.textContent = 'Analyse…';
+    try {
+      const urls = [...new Set([
+        ...[...document.querySelectorAll('script[src], link[href]')].map((n) => n.src || n.href),
+        ...performance.getEntriesByType('resource').map((r) => r.name)
+      ].filter((u) => u && u.includes('/_next/static/chunks/')))].slice(0, 80);
+
+      const found = {};
+      for (const u of urls) {
+        let txt;
+        try { txt = await (await fetch(u)).text(); } catch (e) { continue; }
+        for (const m of txt.matchAll(/soundBankId:"([\w.-]+)"/g)) {
+          const before = txt.slice(Math.max(0, m.index - 400), m.index);
+          const ids = [...before.matchAll(/id:"([\w-]+)"/g)];
+          if (ids.length) found[ids[ids.length - 1][1]] = m[1];
+        }
+      }
+
+      const keys = Object.keys(found);
+      const valid = {};
+      for (let i = 0; i < keys.length; i++) {
+        const id = keys[i];
+        now.textContent = `Vérification ${i + 1}/${keys.length}`;
+        try {
+          const res = await fetch(url(found[id]));
+          if (res.ok && (await res.text()).startsWith('#EXTM3U')) valid[id] = found[id];
+        } catch (e) {}
+      }
+      for (const b of BASE) if (!(b in valid)) valid[b] = b;
+
+      for (const k of Object.keys(map)) delete map[k];
+      Object.assign(map, valid);
+      localStorage.setItem(IDS_KEY, JSON.stringify(map));
+      render();
+      now.textContent = Object.keys(map).length + ' sons disponibles';
+    } catch (e) {
+      now.textContent = 'Échec : ' + e.message;
+    } finally { busy = false; }
+  }
+
+  /* ---------- 8. interactions ---------- */
+  root.addEventListener('click', (e) => {
+    const a = e.target.dataset && e.target.dataset.a;
+    if (a === 'x') { stop(); root.remove(); window.__eu = false; }
+    if (a === 'stop') stop();
+    if (a === 'sync') sync();
+  });
+
+  search.oninput = render;
+
+  root.querySelector('[data-a=timer]').onchange = (e) => {
+    clearTimeout(timer);
+    const m = Number(e.target.value);
+    if (!m) return;
+    timer = setTimeout(stop, m * 60000);
+    now.textContent = 'Arrêt dans ' + m + ' min';
+  };
+
+  root.querySelector('[data-a=vol]').oninput = (e) => { audio.volume = e.target.value / 100; };
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.activeElement !== search) root.classList.toggle('eu-min');
+  });
+
+  const head = root.querySelector('.h');
+  head.addEventListener('click', (e) => {
+    if (e.target.dataset.a === 'x') return;
+    if (!e.detail) return;
+    if (head.dataset.drag) { delete head.dataset.drag; return; }
+    root.classList.toggle('eu-min');
+    localStorage.setItem(MIN_KEY, root.classList.contains('eu-min') ? '1' : '');
+  });
+
+  let drag = null;
+  head.addEventListener('pointerdown', (e) => {
+    if (e.target.dataset.a === 'x') return;
+    drag = { x: e.clientX, y: e.clientY, r: root.getBoundingClientRect() };
+    head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) head.dataset.drag = '1';
+    root.style.left = drag.r.left + dx + 'px';
+    root.style.top = drag.r.top + dy + 'px';
+    root.style.bottom = 'auto';
+  });
+  head.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag = null;
+    localStorage.setItem(POS_KEY, JSON.stringify({ l: root.style.left, t: root.style.top }));
+  });
+
+  navigator.mediaSession.setActionHandler('play', () => audio.play());
+  navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+  navigator.mediaSession.setActionHandler('stop', stop);
+
+  /* ---------- 9. démarrage ---------- */
+  try {
+    const pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+    if (pos && pos.l) { root.style.left = pos.l; root.style.top = pos.t; root.style.bottom = 'auto'; }
+  } catch (e) {}
+  if (localStorage.getItem(MIN_KEY)) root.classList.add('eu-min');
+
+  render();
+  if (!Object.keys(map).length) sync();
+  else now.textContent = 'Prêt';
+})();
