@@ -1,0 +1,60 @@
+#endel-unlock {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  width: 240px;
+  background: #111;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 10px;
+  font: 12px/1.4 system-ui, sans-serif;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, .6);
+}
+#endel-unlock.eu-min .eu-body { display: none; }
+.eu-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #262626;
+}
+.eu-title { flex: 1; font-weight: 600; letter-spacing: .02em; }
+.eu-btn {
+  background: #1d1d1d;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.eu-btn:hover { background: #2a2a2a; }
+.eu-wide { width: 100%; margin-bottom: 6px; }
+.eu-body { padding: 10px; }
+.eu-now {
+  color: #9a9a9a;
+  margin-bottom: 8px;
+  min-height: 2.8em;
+}
+.eu-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.eu-item {
+  text-align: left;
+  background: #181818;
+  color: #ddd;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.eu-item:hover { background: #232323; border-color: #3d3d3d; }
+.eu-empty { color: #777; font-size: 11px; }
+.eu-vol { width: 100%; accent-color: #ddd; }

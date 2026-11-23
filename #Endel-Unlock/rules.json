@@ -1,0 +1,12 @@
+[{
+  "id": 1,
+  "priority": 1,
+  "action": {
+    "type": "redirect",
+    "redirect": { "transform": { "queryTransform": { "removeParams": ["duration"] } } }
+  },
+  "condition": {
+    "urlFilter": "||app.endel.io/api/pacific",
+    "resourceTypes": ["xmlhttprequest", "media", "other"]
+  }
+}]
